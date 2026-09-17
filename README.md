@@ -52,7 +52,7 @@ A high-performance, security-focused **Multi-Tenant SaaS Starter Kit** backend b
 
 ---
 
-### Phase 5: Enterprise Features & Market Differentiation
+### Phase 4: Enterprise Features & Market Differentiation
 - [ ] **Enterprise SSO (SAML 2.0 / OIDC):** Support Okta, Azure AD, and Google Workspace integrations.
 - [ ] **Outbound Webhooks System:** HMAC-signed event dispatching (`X-Signature-256`) with exponential backoff retries.
 - [ ] **Developer Platform (API Keys):** Scoped, hashed API key management (`sk_live_...`) for developer integration.
