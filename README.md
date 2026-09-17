@@ -52,24 +52,6 @@ A high-performance, security-focused **Multi-Tenant SaaS Starter Kit** backend b
 
 ---
 
-## 📐 Architecture Flow
-
-```mermaid
-graph TD
-    Client[Client / Browser] -->|HttpOnly Cookies / Headers| Fastify[Fastify 5 Gateway + Zod Validation]
-    Fastify -->|1. Authenticate JWT| AuthGuard[Auth Guard Middleware]
-    AuthGuard -->|2. Extract Context| TenantResolver[Tenant Resolution Hook]
-    
-    subgraph Multi-Tenant Core Engine
-        TenantResolver -->|3. Validate Membership| MemberGuard[Tenant Member Guard]
-        MemberGuard -->|4. Auto-Inject tenant_id| PrismaExt[Prisma Extension $extends]
-    end
-
-    subgraph Security & Storage Layer
-        AuthGuard -->|Session / Token Check| SessionEngine[Session & RTR Family Engine]
-        PrismaExt -->|Isolated Queries| Postgres[(PostgreSQL Database)]
-    end
-
 ### Phase 5: Enterprise Features & Market Differentiation
 - [ ] **Enterprise SSO (SAML 2.0 / OIDC):** Support Okta, Azure AD, and Google Workspace integrations.
 - [ ] **Outbound Webhooks System:** HMAC-signed event dispatching (`X-Signature-256`) with exponential backoff retries.
