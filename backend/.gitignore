@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.local
+src/generated/
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
+.claude/
+.windsurf/
+.agents/
+skills-lock.json
