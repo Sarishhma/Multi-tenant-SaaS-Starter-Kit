@@ -25,6 +25,9 @@ model User {
   refreshTokens       RefreshToken[]
   verificationOtps    VerificationOtp[]
 
+  memberships    TenantMember[]
+  createdTenants Tenant[]       @relation("TenantCreator")
+
   @@unique([authProvider, providerAccountId])
 }
 
@@ -53,15 +56,19 @@ model RefreshToken {
   sessionId  String
   familyId   String
 
-  replacedBy String?
-  replacedAt DateTime?
-   replacementTokenEncrypted String?
-   
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeTenantId String?
+  activeTenant   Tenant? @relation(fields: [activeTenantId], references: [id], onDelete: SetNull)
+
+  replacedBy                String?
+  replacedAt                DateTime?
+  replacementTokenEncrypted String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([sessionId])
   @@index([familyId])
+  @@index([activeTenantId])
 }
 
 model PasswordResetOtp {
@@ -84,10 +91,82 @@ model AuditLog {
   userAgent String?
   metadata  Json?
   createdAt DateTime       @default(now())
+  tenantId  String?
+  tenant    Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([eventType])
   @@index([createdAt])
+}
+
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+
+  // Subscription metadata
+  stripeCustomerId     String?             @unique
+  stripeSubscriptionId String?             @unique
+  subscriptionStatus   SubscriptionStatus? @default(TRIALING)
+  planId               String?             @default("free")
+  trialEndsAt          DateTime?
+
+  // Relations
+  createdBy     User               @relation("TenantCreator", fields: [createdById], references: [id])
+  members       TenantMember[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  invitations   TenantInvitation[]
+  projects      Project[]
+
+  @@index([slug])
+}
+
+model TenantMember {
+  id        String     @id @default(uuid())
+  userId    String
+  tenantId  String
+  role      TenantRole @default(MEMBER)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId])
+  @@index([userId])
+}
+
+model TenantInvitation {
+  id        String     @id @default(uuid())
+  email     String
+  tenantId  String
+  role      TenantRole @default(MEMBER)
+  tokenHash String     @unique
+  expiresAt DateTime
+  createdAt DateTime   @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@index([tokenHash])
+}
+
+model Project {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }
 
 enum AuthProvider {
@@ -111,4 +190,24 @@ enum AuditEventType {
   ACCOUNT_LOCKED
   TOKEN_REUSE_DETECTED
   SESSION_REVOKED
+
+  TENANT_CREATED
+  TENANT_SWITCHED
+  MEMBER_INVITED
+  MEMBER_REMOVED
+}
+
+enum TenantRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCLED
+  UNPAID
 }

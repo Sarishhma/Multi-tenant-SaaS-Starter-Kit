@@ -1,7 +1,14 @@
+import type { TenantRole } from "../generated/prisma/enums.ts";
 import type { AccessTokenPayload } from "../utils/token.ts";
 import type { FastifyRequest, FastifyReply } from "fastify";
 
 declare module "fastify" {
+
+  interface FastifyInstance {
+    prisma: PrismaClient; // <--- ADD THIS LINE
+    jwt:JWT
+  }
+
   interface FastifyRequest {
     user?: AccessTokenPayload;
   }
@@ -17,6 +24,13 @@ declare module "fastify" {
         };
       }>;
     };
+  }
+
+  interface FastifyRequest{
+    tenantContext?:{
+      tenantId:string;
+      role:TenantRole;
+    }
   }
 }
 

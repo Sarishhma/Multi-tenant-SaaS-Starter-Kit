@@ -28,6 +28,7 @@
     "otplib": "^13.5.0",
     "pg": "^8.22.0",
     "pino-pretty": "^11.0.0",
+    "slugify": "^1.6.9",
     "zod": "^4.4.3"
   },
   "devDependencies": {

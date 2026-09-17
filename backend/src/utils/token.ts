@@ -3,10 +3,13 @@ import { env } from "../config/env.js";
 
 
 
-export interface AccessTokenPayload{
-    sub:string;
-    email:string;
-    role:"USER"|"ADMIN"
+export interface AccessTokenPayload {
+  sub: string;            // Holds the User ID (Standard JWT Subject claim)
+  email: string;
+  role: "USER" | "ADMIN";  // Platform-level global user role
+  sessionId?: string;     // Unique session tracking ID
+  activeTenantId?: string; // Currently selected active workspace ID
+  tenantRole?: string;    // Role within the active tenant (OWNER, ADMIN, MEMBER, VIEWER)
 }
 export interface RefreshTokenPayload{
     sub:string;

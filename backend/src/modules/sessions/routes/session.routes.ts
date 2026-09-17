@@ -57,4 +57,4 @@ export const sessionRoutes: FastifyPluginAsync = async (fastify) => {
     },
     revokeSessionHandler
   );
-};
+};
