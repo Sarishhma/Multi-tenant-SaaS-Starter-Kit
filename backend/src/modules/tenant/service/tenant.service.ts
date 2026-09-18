@@ -1,25 +1,21 @@
-import type { CreateTenantInput } from "../schema/tenant.schema.js";
-import type { PrismaClient } from "../../../generated/prisma/client.js";
+import { TenantRepository } from "../repository/tenant.repository.js";
+import type { PrismaClient, TenantRole } from "../../../generated/prisma/client.js";
 import slugify from "slugify";
-
+import crypto from "crypto";
 
 export class TenantService {
-  constructor(private prisma: PrismaClient) {}
+  private repository: TenantRepository;
 
-//   Instead of hardcoding const prisma = new PrismaClient() inside the service, we pass PrismaClient 
-//   into the constructor. 
-//   This makes testing easy because we can mock the database in unit tests without touching a real database.
+  constructor(prisma: PrismaClient) {
+    this.repository = new TenantRepository(prisma);
+  }
 
-  /**
-   * Generates a unique, URL-safe slug for a workspace.
-   */
   private async generateUniqueSlug(name: string): Promise<string> {
     const baseSlug = slugify(name, { lower: true, strict: true, trim: true });
     let slug = baseSlug;
     let count = 1;
 
-    // Check collision
-    while (await this.prisma.tenant.findUnique({ where: { slug } })) {
+    while (await this.repository.findTenantBySlug(slug)) {
       slug = `${baseSlug}-${count}`;
       count++;
     }
@@ -27,50 +23,13 @@ export class TenantService {
     return slug;
   }
 
-  /**
-   * Provision a new workspace atomically.
-   */
-  async createTenant(userId: string, sessionId: string, input: CreateTenantInput) {
+  async createTenant(userId: string, sessionId: string, input: { name: string }) {
     const slug = await this.generateUniqueSlug(input.name);
-
-    // Atomic Execution Block
-    const [tenant, member] = await this.prisma.$transaction(async (tx) => {
-      // 1. Create Tenant
-      const newTenant = await tx.tenant.create({
-        data: {
-          name: input.name,
-          slug,
-          createdById: userId,
-        },
-      });
-
-      // 2. Add creator as OWNER in TenantMember
-      const newMember = await tx.tenantMember.create({
-        data: {
-          userId,
-          tenantId: newTenant.id,
-          role: 'OWNER',
-        },
-      });
-
-      // 3. Bind active workspace context to active session
-      await tx.refreshToken.updateMany({
-        where: { sessionId, userId, revokedAt: null },
-        data: { activeTenantId: newTenant.id },
-      });
-
-      // 4. Create Audit Log
-      await tx.auditLog.create({
-        data: {
-          userId,
-          tenantId: newTenant.id,
-          eventType: 'TENANT_CREATED',
-          metadata: { workspaceName: newTenant.name, slug: newTenant.slug },
-        },
-      });
-
-      return [newTenant, newMember];
-    });
+    const { tenant, member } = await this.repository.createTenantWithMemberAndAudit(
+      userId,
+      sessionId,
+      { name: input.name, slug }
+    );
 
     return {
       id: tenant.id,
@@ -80,36 +39,16 @@ export class TenantService {
       createdAt: tenant.createdAt,
     };
   }
-  async switchTenant(
-    userId: string,
-    sessionId: string,
-    body: { tenantId: string }
-  ) {
-    const { tenantId } = body;
 
-    // 1. Verify user is a member of the target tenant workspace
-    const membership = await this.prisma.tenantMember.findUnique({
-      where: {
-        userId_tenantId: {
-          tenantId,
-          userId,
-        },
-      },
-      include: {
-        tenant: true,
-      },
-    });
+  async switchTenant(userId: string, sessionId: string, tenantId: string) {
+    const membership = await this.repository.findMembership(userId, tenantId);
 
     if (!membership) {
       throw new Error("ACCESS_DENIED: You are not a member of this workspace.");
     }
 
-    // 2. Update active tenant on current user session (if session tracking is enabled)
     if (sessionId) {
-      await this.prisma.refreshToken.update({
-        where: { id: sessionId },
-        data: { activeTenantId: tenantId },
-      });
+      await this.repository.updateActiveSession(sessionId, tenantId);
     }
 
     return {
@@ -117,6 +56,69 @@ export class TenantService {
       name: membership.tenant.name,
       slug: membership.tenant.slug,
       role: membership.role,
+    };
+  }
+
+  async inviteUser(userId: string, tenantId: string, input: { email: string; role?: TenantRole }) {
+    const { email, role = 'MEMBER' } = input;
+
+    const inviterMembership = await this.repository.findMembership(userId, tenantId);
+    if (!inviterMembership || !['OWNER', 'ADMIN'].includes(inviterMembership.role)) {
+      throw new Error("ACCESS_DENIED: You do not have permission to invite users to this workspace.");
+    }
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
+
+    const invitation = await this.repository.upsertInvitation(
+      tenantId,
+      email,
+      role,
+      tokenHash,
+      expiresAt
+    );
+
+    return {
+      invitationId: invitation.id,
+      email: invitation.email,
+      role: invitation.role,
+      expiresAt: invitation.expiresAt,
+      rawToken,
+    };
+  }
+
+  async acceptInvitation(userId: string, sessionId: string, rawToken: string) {
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+    const invitation = await this.repository.findInvitationByHash(tokenHash);
+
+    if (!invitation) {
+      throw new Error("INVALID_INVITATION: This invitation link is invalid or has already been used.");
+    }
+
+    if (invitation.expiresAt < new Date()) {
+      await this.repository.deleteInvitation(invitation.id);
+      throw new Error("EXPIRED_INVITATION: This invitation link has expired.");
+    }
+
+    const membership = await this.repository.acceptInvitationTx(
+      userId,
+      sessionId,
+      invitation.tenantId,
+      invitation.role,
+      invitation.id
+    );
+
+    return {
+      success: true,
+      tenant: {
+        id: invitation.tenant.id,
+        name: invitation.tenant.name,
+        slug: invitation.tenant.slug,
+        role: membership.role,
+      },
     };
   }
 }
